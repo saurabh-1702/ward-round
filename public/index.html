@@ -135,7 +135,7 @@ select.search{max-width:170px}
 <script type="module">
 import * as R from './rules.js';
 const {BEDS,MIN_SAMPLE,BENCH,OUTCOME,addDays,diff,mins}=R;
-const ROLES={nurse:{label:'Nurse',pin:'1111'},doctor:{label:'Doctor',pin:'2222'},admin:{label:'Admin',pin:'3333'},head:{label:'Head doctor',pin:'4444'}};
+const ROLES={nurse:{label:'Nurse'},doctor:{label:'Doctor'},admin:{label:'Admin'},head:{label:'Head doctor'}};
 const SECTIONS=[['all','All beds',1,BEDS],['a','Beds 1 to 25',1,25],['b','Beds 26 to 50',26,50],['c','Beds 51 to 74',51,74]];
 const SKEY='wardround.session',OKEY='wardround.outbox';
 let S=null, ME=null, TOKEN=null, ui={role:'nurse',tab:{nurse:'todo',doctor:'priority'},q:'',sec:'all'}, reopenFn=null;
@@ -190,7 +190,7 @@ function silent(type,payload){api('/api/action',Object.assign({type,rid:uuid()},
 /* ---------- offline queue: readings and "could not measure" only ---------- */
 const outbox=()=>{try{return JSON.parse(store.get(OKEY)||'[]')}catch(e){return []}};
 function outboxAdd(x){const o=outbox();o.push(x);store.set(OKEY,JSON.stringify(o));netChip()}
-let syncing=false;
+let syncing=false, closeModalKeep=false;
 async function sync(){
   const o=outbox();if(syncing||!o.length||!TOKEN)return;syncing=true;
   try{for(const x of o){
@@ -208,7 +208,7 @@ function showLogin(msg){
   ['btnHand','btnNext','btnReset','btnOut'].forEach(id=>{$(id).hidden=true});
   $('view').innerHTML='<div class="panel" style="max-width:520px;margin:4vh auto 0;padding:18px;display:flex;flex-direction:column;gap:14px"><h1>Sign in</h1>'+(msg?'<div class="note warn">'+esc(msg)+'</div>':'')+
   '<form id="login" novalidate><label for="lRole">Role<select id="lRole" name="role">'+Object.keys(ROLES).map(r=>'<option value="'+r+'"'+(r===ui.role?' selected':'')+'>'+ROLES[r].label+'</option>').join('')+'</select></label><label for="lPin">PIN<input id="lPin" name="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label><div class="err" id="err" role="alert" hidden></div><button class="btn pri">Sign in</button></form>'+
-  '<p class="sub">Demo PINs: Nurse 1111 · Doctor 2222 · Admin 3333 · Head doctor 4444. After signing in, the role buttons at the top switch accounts.</p></div>';
+  '<p class="sub">Demo PINs for reviewers: Nurse 1111 · Doctor 2222 · Admin 3333 · Head doctor 4444. To switch roles later, click a role at the top and enter its PIN.</p></div>';
 }
 async function login(role,pin){
   const j=await api('/api/login',{role,pin});ME=j.me;ui.role=ME.role;ui.q='';
@@ -437,6 +437,7 @@ function mMove(p){reopenFn=()=>mMove(p&&byId(p.id));const free=freeBeds();if(!fr
 function mReopen(p){reopenFn=()=>mReopen(p&&byId(p.id));const free=freeBeds();modal('<h2>Reopen case</h2><p class="sub">'+esc(p.name)+', '+p.age+' · closed '+fmt(p.closedOn)+' as "'+OUTCOME[p.status]+'". Use this only when the case was closed by mistake.</p>'+(free.length?'<form data-form="reopen" data-id="'+p.id+'" novalidate><label for="rBed">Bed<select id="rBed" name="bed">'+free.map(b=>'<option>'+b+'</option>').join('')+'</select></label><label for="rReason">Reason<input id="rReason" name="reason" type="text" maxlength="120"></label>'+foot('Reopen case')+'</form>':'<div class="note crit">No clean, free bed is available, so the case cannot be reopened yet.</div><div class="foot"><button class="btn pri" data-act="close">OK</button></div>'))}
 function mSettings(){modal('<h2>Fever threshold</h2><p class="sub">A reading at or above this value counts as a fever. Changing it recalculates every patient\'s fever-free days.</p><form data-form="settings" novalidate><label for="sThr">Threshold in °C<input class="big" id="sThr" name="thr" type="text" inputmode="decimal" value="'+S.threshold.toFixed(1)+'"></label><div class="note" id="thrPreview">Enter a value to see how many patients would be ready for discharge.</div>'+foot('Save threshold')+'</form>')}
 function mNext(){reopenFn=null;const a=active(),un=a.filter(p=>!analyse(p).today.o).length;modal('<h2>Move the demo to '+fmt(addDays(S.today,1),true)+'?</h2><p class="sub">This button exists only in the prototype, so the 3-day rule can be shown without waiting. '+un+' of '+a.length+' patients have no reading today.</p><form data-form="next"><label class="chk"><input type="checkbox" name="fill" id="nFill" checked><span>Fill in today\'s missing readings and visits with example values first. Untick to see how missed readings are flagged tomorrow.</span></label>'+foot('Go to next day')+'</form>')}
+function mSwitch(r){modal('<h2>Switch to '+ROLES[r].label+'</h2><p class="sub">Enter the '+ROLES[r].label.toLowerCase()+' PIN. You stay signed in as '+esc(me())+' until it is accepted.</p><form id="switch" data-role="'+r+'" novalidate><label for="sPin">PIN<input id="sPin" name="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label><div class="err" id="err" role="alert" hidden></div><div class="foot"><button type="button" class="btn" data-act="close">Cancel</button><button class="btn pri">Switch account</button></div></form>')}
 function mReset(){modal('<h2>Reset the demo?</h2><p class="sub">All changes made in this browser are replaced with the original example ward.</p><form data-form="reset">'+foot('Reset demo data','danger')+'</form>')}
 function mHandover(){
   const A=all(),beds=l=>l.length?l.map(x=>x[0].bed).join(', '):'none';
@@ -470,7 +471,7 @@ async function submitForm(f,sub){
 document.addEventListener('click',e=>{
   if(e.target.id==='overlay'){closeModal();return}
   const b=e.target.closest('[data-act]');if(!b)return;const act=b.dataset.act,p=b.dataset.id?byId(+b.dataset.id):null;
-  if(act==='role'){const r=b.dataset.role;if(r===ui.role)return;login(r,ROLES[r].pin).then(()=>{window.scrollTo(0,0);toast('Signed in as '+me()+'.')},e=>toast(e.message))}
+  if(act==='role'){const r=b.dataset.role;if(r===ui.role)return;mSwitch(r)}
   else if(act==='signout'){signedOut('You signed out.')}
   else if(act==='tab'){ui.tab[ui.role]=b.dataset.tab;render()}
   else if(act==='close')closeModal();
@@ -499,7 +500,9 @@ document.addEventListener('click',e=>{
   }
 });
 document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target;
-  if(f.id==='login'){const err=$('err');err.hidden=true;try{await login(f.role.value,f.pin.value)}catch(x){if(!x.handled){err.textContent=x.message;err.hidden=false}}return}
+  if(f.id==='login'||f.id==='switch'){const err=$('err');err.hidden=true;const role=f.id==='login'?f.role.value:f.dataset.role;
+    if(f.id==='switch'){const old=TOKEN;try{closeModalKeep=true;await login(role,f.pin.value);closeModal();window.scrollTo(0,0);toast('Signed in as '+me()+'.')}catch(x){TOKEN=old;if(!x.handled){err.textContent=x.message;err.hidden=false}}finally{closeModalKeep=false}return}
+    try{await login(role,f.pin.value)}catch(x){if(!x.handled){err.textContent=x.message;err.hidden=false}}return}
   if(!f.dataset.form||f.dataset.busy)return;const err=$('err');if(err)err.hidden=true;f.dataset.busy='1';
   const btns=f.querySelectorAll('button:not([data-act])');btns.forEach(x=>x.disabled=true);
   try{await submitForm(f,e.submitter?e.submitter.value:'save')}finally{if(f.isConnected){delete f.dataset.busy;btns.forEach(x=>x.disabled=false)}}});
