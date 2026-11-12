@@ -1,0 +1,11 @@
+{
+  "name": "ward-round",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Quarantine centre ward app: nurse and doctor rounds, discharges, beds and quality dashboard.",
+  "scripts": { "dev": "node dev/server.mjs" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "pg": "8.13.1" },
+  "devDependencies": { "@electric-sql/pglite": "0.2.17" }
+}
